@@ -3,6 +3,9 @@ import torch
 import numpy as np
 from networks import Embedder, Recovery, Generator, Discriminator, Supervisor
 from utils import batch_generator, random_generator, MinMaxScaler, extract_time
+from torch.utils.data.dataloader import DataLoader
+from opacus import PrivacyEngine
+from opacus.validators import ModuleValidator
 
 torch.autograd.set_detect_anomaly(True)
 class TimeGAN:
@@ -21,6 +24,7 @@ class TimeGAN:
         self.para['hidden_dim'] = self.opt.hidden_dim
         self.para['num_layer'] = self.opt.num_layer
         self.embedder = Embedder(self.para).to(self.device)
+        self.embedder = ModuleValidator.fix(self.embedder)
         self.recovery = Recovery(self.para).to(self.device)
         self.generator = Generator(self.para).to(self.device)
         self.discriminator = Discriminator(self.para).to(self.device)
@@ -39,15 +43,21 @@ class TimeGAN:
 
         if self.opt.load_checkpoint:
             self.load_trained_networks()
+        
+        self.dataloader_static = DataLoader(self.ori_data, self.opt.batch_size)
+        self.dataloader_time = DataLoader(self.ori_time, self.opt.batch_size)
+        self.dataloader_static_iterator = iter(self.dataloader_static)
+        self.dataloader_time_iterator = iter(self.dataloader_time)
 
     def gen_batch(self):
 
         # Set training batch
-        self.X, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-        self.X = torch.tensor(np.array(self.X), dtype=torch.float32).to(self.device)
-        # Random vector generation
-        self.Z = random_generator(self.opt.batch_size, self.para['input_dim'], self.max_seq_len, self.T)
-        self.Z = torch.tensor(np.array(self.Z), dtype=torch.float32).to(self.device)
+        try:
+            self.X = next(self.dataloader_static_iterator).type(dtype=torch.float32).to(self.device)
+            self.T = next(self.dataloader_time_iterator).type(dtype=torch.float32).to(self.device)
+            self.Z = torch.rand(size=(self.opt.batch_size, self.max_seq_len, self.para['input_dim']), dtype=torch.float32).to(self.device)
+        except StopIteration:
+            pass
 
         # total networks forward
     def batch_forward(self):
@@ -72,25 +82,83 @@ class TimeGAN:
         self.X_hat = self.recovery(self.H_hat)
 
         return self.X_hat
-
-    def train_embedder(self, join_train=False):
+        
+    def train_embedder(self, joint_train=False):
+        # set models to training mode
         self.embedder.train()
         self.recovery.train()
+        
+        # privacy_engine = PrivacyEngine()
+
+        # net, optimizer, trainloader = privacy_engine.make_private(
+        #     module=self.embedder,
+        #     optimizer=self.optim_embedder,
+        #     data_loader=self.dataloader_static,
+        #     noise_multiplier=1.1,
+        #     max_grad_norm=1.1,
+        # )
+        
+        # zero out any previous graidents
         self.optim_embedder.zero_grad()
         self.optim_recovery.zero_grad()
+        
+        # compute predictions
+        self.H = self.embedder(self.X)
+        self.X_tilde = self.recovery(self.H)
+        
+        # compute loss
         self.E_loss_T0 = self.MSELoss(self.X, self.X_tilde)
         self.E_loss0 = 10 * torch.sqrt(self.E_loss_T0)
-        if not join_train:
-            # E0_solver
-            self.E_loss0.backward()
-        else:
-            # E_solver
-            self.G_loss_S = self.MSELoss(self.H[:, 1:, :], self.H_hat_supervise[:, :-1, :])
-            self.E_loss = self.E_loss0 + 0.1 * self.G_loss_S
-            self.E_loss.backward()
+        
+        # backpropagation # E0_solver
+        self.E_loss0.backward()
+
+        # update weights
         self.optim_embedder.step()
         self.optim_recovery.step()
 
+    def train_embedder(self, joint_train=False):
+        # set models to training mode
+        self.embedder.train()
+        self.recovery.train()
+        
+        
+        # DP bullshit
+        privacy_engine = PrivacyEngine()
+
+        net, optimizer, trainloader = privacy_engine.make_private(
+            module=self.embedder,
+            optimizer=self.optim_embedder,
+            data_loader=self.dataloader_static,
+            noise_multiplier=1.1,
+            max_grad_norm=1.1,
+        )
+        
+        try:
+            self.X = next(iter(trainloader)).type(dtype=torch.float32).to(self.device)
+        except StopIteration:
+            pass
+        
+        # zero out any previous graidents
+        optimizer.zero_grad()
+        self.optim_recovery.zero_grad()
+        
+        # compute predictions
+        self.H = net(self.X)
+        self.X_tilde = self.recovery(self.H)
+        
+        # compute loss
+        self.E_loss_T0 = self.MSELoss(self.X, self.X_tilde)
+        self.E_loss0 = 10 * torch.sqrt(self.E_loss_T0)
+        
+        # backpropagation # E0_solver
+        self.E_loss0.backward()
+
+        # update weights
+        self.optim_embedder.step()
+        self.optim_recovery.step()
+        
+        
     def train_supervisor(self):
         # GS_solver
         self.generator.train()
@@ -102,7 +170,7 @@ class TimeGAN:
         self.optim_generator.step()
         self.optim_supervisor.step()
 
-    def train_generator(self,join_train=False):
+    def train_generator(self,joint_train=False):
         # G_solver
         self.optim_generator.zero_grad()
         self.optim_supervisor.zero_grad()
@@ -117,7 +185,7 @@ class TimeGAN:
                       self.opt.gamma * self.G_loss_U_e + \
                       torch.sqrt(self.G_loss_S) * 100 + \
                       self.G_loss_V * 100
-        if not join_train:
+        if not joint_train:
             self.G_loss.backward()
         else:
             self.G_loss.backward(retain_graph=True)

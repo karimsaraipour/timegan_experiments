@@ -10,13 +10,13 @@ def train(opt, ori_data):
 
     # Model Setting
     model = timegan.TimeGAN(opt, ori_data)
-    per_print_num = opt.iterations / opt.print_times
+    per_print_num = opt.iterations / 50000
 
     # 1. Embedding network training
     print('Start Embedding Network Training')
     for i in range(opt.iterations):
         model.gen_batch()
-        model.batch_forward()
+        # model.batch_forward()
         model.train_embedder()
         if i % per_print_num == 0:
             print('step: ' + str(i) + '/' + str(opt.iterations) +
@@ -40,9 +40,9 @@ def train(opt, ori_data):
         for kk in range(2):
             model.gen_batch()
             model.batch_forward()
-            model.train_generator(join_train=True)
+            model.train_generator(joint_train=True)
             model.batch_forward()
-            model.train_embedder(join_train=True)
+            model.train_embedder(joint_train=True)
         # Discriminator training
         model.gen_batch()
         model.batch_forward()
