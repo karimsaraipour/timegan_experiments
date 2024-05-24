@@ -1,5 +1,5 @@
 import torch.nn as nn
-
+import torch
 
 def get_rnn_cell(module_name):
     """Basic RNN Cell.
@@ -89,6 +89,7 @@ class Recovery(nn.Module):
     def forward(self, z):
         h = self.fc(z)
         output, _ = self.lstm(h)
+        
         return output
 
 
@@ -107,11 +108,13 @@ class Generator(nn.Module):
         self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
                             batch_first=True)
         self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
+        self.attention = Attention(input_dim=para['hidden_dim'], hidden_dim=para['hidden_dim'])
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, Z):
         g_outputs, _ = self.rnn(Z)
-        E = self.fc(g_outputs)
+        context_vector, _ = self.attention(g_outputs)
+        E = self.fc(context_vector)
         E = self.sigmoid(E)
         return E
 
@@ -162,3 +165,28 @@ class Discriminator(nn.Module):
         Y = self.fc(d_outputs)
         Y = self.sigmoid(Y)
         return Y
+
+class Attention(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(Attention, self).__init__()
+        self.attention = nn.Linear(input_dim, hidden_dim)  
+        self.context_vector = nn.Linear(hidden_dim, 1, bias=False)
+
+    def forward(self, prev_model_outputs):
+        
+        # Compute attention scores
+        attention_scores = torch.tanh(self.attention(prev_model_outputs))
+        
+        # Compute attention weights.
+        #   squeeze: each time step gets single score, thus squeeze that dimension out
+        attention_weights = self.context_vector(attention_scores).squeeze(-1)
+
+        
+        # Normalize scores to weights (along time step dimension)
+        attention_weights = torch.softmax(attention_weights, dim=1)  
+        
+        # Compute the weighted sum
+        weighted_output = prev_model_outputs * attention_weights.unsqueeze(-1) 
+        context_vector = torch.sum(weighted_output, dim=1) 
+        
+        return context_vector, attention_weights
