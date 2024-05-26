@@ -101,6 +101,21 @@ class Generator(nn.Module):
     Returns:
       - E: generated embedding
     """
+    
+    # def __init__(self, para):
+    #     super(Generator, self).__init__()
+    #     rnn_cell = get_rnn_cell(para['module'])
+    #     self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
+    #                         batch_first=True)
+    #     self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
+    #     self.sigmoid = nn.Sigmoid()
+
+    # def forward(self, Z):
+    #     g_outputs, _ = self.rnn(Z)
+    #     E = self.fc(g_outputs)
+    #     E = self.sigmoid(E)
+    #     return E
+
 
     def __init__(self, para):
         super(Generator, self).__init__()
@@ -114,6 +129,7 @@ class Generator(nn.Module):
     def forward(self, Z):
         g_outputs, _ = self.rnn(Z)
         context_vector, _ = self.attention(g_outputs)
+        print(context_vector.size())
         E = self.fc(context_vector)
         E = self.sigmoid(E)
         return E
@@ -157,13 +173,13 @@ class Discriminator(nn.Module):
         rnn_cell = get_rnn_cell(para['module'])
         self.rnn = rnn_cell(input_size=para['hidden_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
                             batch_first=True)
-        self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
-        self.sigmoid = nn.Sigmoid()
+        self.fc = nn.Linear(para['hidden_dim'], 1)
+        # self.sigmoid = nn.Sigmoid()
 
     def forward(self, H):
         d_outputs, _ = self.rnn(H)
         Y = self.fc(d_outputs)
-        Y = self.sigmoid(Y)
+        # Y = self.sigmoid(Y)
         return Y
 
 class Attention(nn.Module):
@@ -187,6 +203,6 @@ class Attention(nn.Module):
         
         # Compute the weighted sum
         weighted_output = prev_model_outputs * attention_weights.unsqueeze(-1) 
-        context_vector = torch.sum(weighted_output, dim=1) 
+        # context_vector = torch.sum(weighted_output, dim=1) 
         
-        return context_vector, attention_weights
+        return weighted_output, attention_weights

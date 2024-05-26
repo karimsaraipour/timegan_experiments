@@ -33,6 +33,7 @@ class TimeGAN:
         self.optim_discriminator = torch.optim.Adam(self.discriminator.parameters(), lr=self.opt.lr)
         self.optim_supervisor = torch.optim.Adam(self.supervisor.parameters(), lr=self.opt.lr)
         self.optimizer_vae =  torch.optim.Adam(list(self.embedder.parameters()) + list(self.recovery.parameters()))
+        self.optimizer_gan =  torch.optim.Adam(list(self.generator.parameters()) + list(self.discriminator.parameters()))
 
         # Set loss function
         self.MSELoss = torch.nn.MSELoss()
@@ -40,6 +41,9 @@ class TimeGAN:
 
         if self.opt.load_checkpoint:
             self.load_trained_networks()
+            
+        # clip value
+        self.clip_value = 2e-1
 
     def gen_batch(self):
 
@@ -113,21 +117,27 @@ class TimeGAN:
         
     def train_supervisor(self):
         # GS_solver
-        self.generator.train()
+        # self.generator.train()
         self.supervisor.train()
         self.optim_generator.zero_grad()
         self.optim_supervisor.zero_grad()
         self.G_loss_S = self.MSELoss(self.H[:, 1:, :], self.H_hat_supervise[:, :-1, :])
         self.G_loss_S.backward()
-        self.optim_generator.step()
+        # self.optim_generator.step()
         self.optim_supervisor.step()
 
     def train_generator(self,join_train=False):
         # G_solver
-        self.optim_generator.zero_grad()
-        self.optim_supervisor.zero_grad()
-        self.G_loss_U = self.BCELoss(self.Y_fake, torch.ones_like(self.Y_fake))
-        self.G_loss_U_e = self.BCELoss(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
+        # self.optim_generator.zero_grad()
+        # self.optim_supervisor.zero_grad()
+        self.optimizer_gan.zero_grad()
+        
+        # self.G_loss_U = self.BCELoss(self.Y_fake, torch.ones_like(self.Y_fake))
+        self.G_loss_U = torch.mean(self.Y_fake)
+        
+        # self.G_loss_U_e = self.BCELoss(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
+        self.G_loss_U_e = torch.mean(self.Y_fake_e)
+        
         self.G_loss_V1 = torch.mean(torch.abs(torch.sqrt(torch.std(self.X_hat, [0])[1] + 1e-6) - torch.sqrt(
             torch.std(self.X, [0])[1] + 1e-6)))
         self.G_loss_V2 = torch.mean(torch.abs((torch.mean(self.X_hat, [0])) - (torch.mean(self.X, [0]))))
@@ -142,24 +152,42 @@ class TimeGAN:
         else:
             self.G_loss.backward(retain_graph=True)
 
-        self.optim_generator.step()
-        self.optim_supervisor.step()
+        # self.optim_generator.step()
+        # self.optim_supervisor.step()
+        self.optimizer_gan.step()
+        
 
 
     def train_discriminator(self):
         # D_solver
         self.discriminator.train()
-        self.optim_discriminator.zero_grad()
-        self.D_loss_real = self.BCELoss(self.Y_real, torch.ones_like(self.Y_real))
-        self.D_loss_fake = self.BCELoss(self.Y_fake, torch.zeros_like(self.Y_fake))
-        self.D_loss_fake_e = self.BCELoss(self.Y_fake_e, torch.zeros_like(self.Y_fake_e))
+        # self.optim_discriminator.zero_grad()
+        self.optimizer_gan.zero_grad()
+        
+        # self.D_loss_real = self.BCELoss(self.Y_real, torch.ones_like(self.Y_real))
+        # self.D_loss_fake = self.BCELoss(self.Y_fake, torch.zeros_like(self.Y_fake))
+        # self.D_loss_fake_e = self.BCELoss(self.Y_fake_e, torch.zeros_like(self.Y_fake_e))
+        
+        self.D_loss_real = torch.mean(self.Y_real)
+        self.D_loss_fake = torch.mean(self.Y_fake)
+        self.D_loss_fake_e = torch.mean(self.Y_fake_e)
+        
         self.D_loss = self.D_loss_real + \
                       self.D_loss_fake + \
                       self.opt.gamma * self.D_loss_fake_e
-        # Train discriminator (only when the discriminator does not work well)
-        if self.D_loss > 0.15:
-            self.D_loss.backward()
-            self.optim_discriminator.step()
+        # critic loss is essentially the same as D_loss
+        critic_loss = self.D_loss_fake + self.D_loss_fake_e - self.D_loss_real
+        critic_loss.backward()
+        self.optimizer_gan.step()
+        for p in self.discriminator.parameters():
+                p.data.clamp_(-self.clip_value, self.clip_value)
+
+        self.D_loss = critic_loss
+
+        # # Train discriminator (only when the discriminator does not work well)
+        # if self.D_loss > 0.15:
+        #     self.D_loss.backward()
+        #     self.optim_discriminator.step()
 
     def load_trained_networks(self):
         print("Loading trained networks")
