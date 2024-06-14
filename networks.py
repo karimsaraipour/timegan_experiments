@@ -1,5 +1,5 @@
 import torch.nn as nn
-
+import torch
 
 def get_rnn_cell(module_name):
     """Basic RNN Cell.
@@ -29,7 +29,7 @@ class Embedder(nn.Module):
 
     def __init__(self, para):
         super(Embedder, self).__init__()
-        rnn_cell = get_rnn_cell(para['module'])
+        rnn_cell = get_rnn_cell('lstm')
         self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
                             batch_first=True)
         self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
@@ -41,6 +41,20 @@ class Embedder(nn.Module):
         H = self.sigmoid(H)
         return H
 
+    # def __init__(self, para):
+    #     super(Embedder, self).__init__()
+    #     input_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
+    #     self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+    #     self.fc_mu = nn.Linear(hidden_dim, latent_dim)
+    #     self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
+        
+    # def forward(self, X):
+    #     e_outputs, (h, _) = self.lstm(X)
+    #     h = e_outputs
+    #     mu = self.fc_mu(h)
+    #     logvar = self.fc_logvar(h)
+    #     return h, mu, logvar
+      
 
 class Recovery(nn.Module):
     """Recovery network from latent space to original space.
@@ -64,6 +78,19 @@ class Recovery(nn.Module):
         X_tilde = self.fc(r_outputs)
         X_tilde = self.sigmoid(X_tilde)
         return X_tilde
+      
+    # def __init__(self, para):
+    #     super(Recovery, self).__init__()
+    #     output_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
+    #     self.lstm = nn.LSTM(hidden_dim, output_dim, num_layers=num_layers, batch_first=True)
+    #     self.fc = nn.Linear(latent_dim, hidden_dim)
+
+    # def forward(self, z):
+    #     h = self.fc(z)
+    #     output, _ = self.lstm(h)
+        
+    #     return output
+
 
 
 class Generator(nn.Module):
@@ -73,7 +100,7 @@ class Generator(nn.Module):
     Returns:
       - E: generated embedding
     """
-
+    
     def __init__(self, para):
         super(Generator, self).__init__()
         rnn_cell = get_rnn_cell(para['module'])
@@ -87,6 +114,23 @@ class Generator(nn.Module):
         E = self.fc(g_outputs)
         E = self.sigmoid(E)
         return E
+
+
+    # def __init__(self, para):
+    #     super(Generator, self).__init__()
+    #     rnn_cell = get_rnn_cell(para['module'])
+    #     self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
+    #                         batch_first=True)
+    #     self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
+    #     self.attention = Attention(input_dim=para['hidden_dim'], hidden_dim=para['hidden_dim'])
+    #     self.sigmoid = nn.Sigmoid()
+
+    # def forward(self, Z):
+    #     g_outputs, _ = self.rnn(Z)
+    #     context_vector, _ = self.attention(g_outputs)
+    #     E = self.fc(context_vector)
+    #     E = self.sigmoid(E)
+    #     return E
 
 
 class Supervisor(nn.Module):
@@ -127,11 +171,36 @@ class Discriminator(nn.Module):
         rnn_cell = get_rnn_cell(para['module'])
         self.rnn = rnn_cell(input_size=para['hidden_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
                             batch_first=True)
-        self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
-        self.sigmoid = nn.Sigmoid()
+        self.fc = nn.Linear(para['hidden_dim'], 1)
+        # self.sigmoid = nn.Sigmoid()
 
     def forward(self, H):
         d_outputs, _ = self.rnn(H)
         Y = self.fc(d_outputs)
-        Y = self.sigmoid(Y)
+        # Y = self.sigmoid(Y)
         return Y
+
+class Attention(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(Attention, self).__init__()
+        self.attention = nn.Linear(input_dim, hidden_dim)  
+        self.context_vector = nn.Linear(hidden_dim, 1, bias=False)
+
+    def forward(self, prev_model_outputs):
+        
+        # Compute attention scores
+        attention_scores = torch.tanh(self.attention(prev_model_outputs))
+        
+        # Compute attention weights.
+        #   squeeze: each time step gets single score, thus squeeze that dimension out
+        attention_weights = self.context_vector(attention_scores).squeeze(-1)
+
+        
+        # Normalize scores to weights (along time step dimension)
+        attention_weights = torch.softmax(attention_weights, dim=1)  
+        
+        # Compute the weighted sum
+        weighted_output = prev_model_outputs * attention_weights.unsqueeze(-1) 
+        # context_vector = torch.sum(weighted_output, dim=1) 
+        
+        return weighted_output, attention_weights

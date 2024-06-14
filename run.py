@@ -11,10 +11,12 @@ def train(opt, ori_data):
     # Model Setting
     model = timegan.TimeGAN(opt, ori_data)
     per_print_num = opt.iterations / opt.print_times
+    per_print_num = opt.iterations / 50
 
     # 1. Embedding network training
     print('Start Embedding Network Training')
     for i in range(opt.iterations):
+        model.current_step = i
         model.gen_batch()
         model.batch_forward()
         model.train_embedder()
@@ -23,6 +25,7 @@ def train(opt, ori_data):
                   ', e_loss: ' + str(np.round(np.sqrt(model.E_loss_T0.item()), 4)))
     print('Finish Embedding Network Training')
 
+    ####
     # 2. Training only with supervised loss
     print('Start Training with Supervised Loss Only')
     for i in range(opt.iterations):
@@ -37,16 +40,17 @@ def train(opt, ori_data):
     print('Start Joint Training')
     for i in range(opt.iterations):
         # Generator training (twice more than discriminator training)
-        for kk in range(2):
-            model.gen_batch()
-            model.batch_forward()
-            model.train_generator(join_train=True)
-            model.batch_forward()
-            model.train_embedder(join_train=True)
         # Discriminator training
-        model.gen_batch()
-        model.batch_forward()
-        model.train_discriminator()
+        for _ in range(2):
+          model.gen_batch()
+          model.batch_forward()
+          model.train_discriminator()
+        for kk in range(1):
+          model.gen_batch()
+          model.batch_forward()
+          model.train_generator(join_train=True)
+          model.batch_forward()
+          model.train_embedder(join_train=True)
 
         # Print multiple checkpoints
         if i % per_print_num == 0:

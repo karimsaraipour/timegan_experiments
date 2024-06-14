@@ -71,6 +71,8 @@ if __name__ == '__main__':
     parser.add_argument('--is_test', type=bool, default=False, help='iterations of the metric computation')
     parser.add_argument('--only_visualize_metric', type=bool, default=False, help='only compute visualization metrics')
     parser.add_argument('--load_checkpoint', type=bool, default=False, help='load pretrain networks')
+    parser.add_argument('--clip_value', type=float)
+    parser.add_argument('--discriminator_type', type=str)
 
     # Call main function
     opt = parser.parse_args()
