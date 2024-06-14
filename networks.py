@@ -27,34 +27,34 @@ class Embedder(nn.Module):
           - H: embedding features size: (Num, Len, Dim) = (3661, 24, 6)
         """
 
-    # def __init__(self, para):
-    #     super(Embedder, self).__init__()
-    #     rnn_cell = get_rnn_cell('lstm')
-    #     self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
-    #                         batch_first=True)
-    #     self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
-    #     self.sigmoid = nn.Sigmoid()
-
-    # def forward(self, X):
-    #     e_outputs, _ = self.rnn(X)
-    #     H = self.fc(e_outputs)
-    #     H = self.sigmoid(H)
-    #     print(H.size())
-    #     return H
-
     def __init__(self, para):
         super(Embedder, self).__init__()
-        input_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
-        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
-        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
-        self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
-        
+        rnn_cell = get_rnn_cell('lstm')
+        self.rnn = rnn_cell(input_size=para['input_dim'], hidden_size=para['hidden_dim'], num_layers=para['num_layer'],
+                            batch_first=True)
+        self.fc = nn.Linear(para['hidden_dim'], para['hidden_dim'])
+        self.sigmoid = nn.Sigmoid()
+
     def forward(self, X):
-        e_outputs, (h, _) = self.lstm(X)
-        h = e_outputs
-        mu = self.fc_mu(h)
-        logvar = self.fc_logvar(h)
-        return h, mu, logvar
+        e_outputs, _ = self.rnn(X)
+        H = self.fc(e_outputs)
+        H = self.sigmoid(H)
+        print(H.size())
+        return H
+
+    # def __init__(self, para):
+    #     super(Embedder, self).__init__()
+    #     input_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
+    #     self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+    #     self.fc_mu = nn.Linear(hidden_dim, latent_dim)
+    #     self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
+        
+    # def forward(self, X):
+    #     e_outputs, (h, _) = self.lstm(X)
+    #     h = e_outputs
+    #     mu = self.fc_mu(h)
+    #     logvar = self.fc_logvar(h)
+    #     return h, mu, logvar
       
 
 class Recovery(nn.Module):
@@ -66,31 +66,31 @@ class Recovery(nn.Module):
       - X_tilde: recovered data
     """
 
-    # def __init__(self, para):
-    #     super(Recovery, self).__init__()
-    #     rnn_cell = get_rnn_cell(para['module'])
-    #     self.rnn = rnn_cell(input_size=para['hidden_dim'], hidden_size=para['input_dim'], num_layers=para['num_layer'],
-    #                         batch_first=True)
-    #     self.fc = nn.Linear(para['input_dim'], para['input_dim'])
-    #     self.sigmoid = nn.Sigmoid()
-
-    # def forward(self, H):
-    #     r_outputs, _ = self.rnn(H)
-    #     X_tilde = self.fc(r_outputs)
-    #     X_tilde = self.sigmoid(X_tilde)
-    #     return X_tilde
-      
     def __init__(self, para):
         super(Recovery, self).__init__()
-        output_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
-        self.lstm = nn.LSTM(hidden_dim, output_dim, num_layers=num_layers, batch_first=True)
-        self.fc = nn.Linear(latent_dim, hidden_dim)
+        rnn_cell = get_rnn_cell(para['module'])
+        self.rnn = rnn_cell(input_size=para['hidden_dim'], hidden_size=para['input_dim'], num_layers=para['num_layer'],
+                            batch_first=True)
+        self.fc = nn.Linear(para['input_dim'], para['input_dim'])
+        self.sigmoid = nn.Sigmoid()
 
-    def forward(self, z):
-        h = self.fc(z)
-        output, _ = self.lstm(h)
+    def forward(self, H):
+        r_outputs, _ = self.rnn(H)
+        X_tilde = self.fc(r_outputs)
+        X_tilde = self.sigmoid(X_tilde)
+        return X_tilde
+      
+    # def __init__(self, para):
+    #     super(Recovery, self).__init__()
+    #     output_dim, hidden_dim, latent_dim, num_layers = para['input_dim'], para['hidden_dim'], para['hidden_dim'], para['num_layer']
+    #     self.lstm = nn.LSTM(hidden_dim, output_dim, num_layers=num_layers, batch_first=True)
+    #     self.fc = nn.Linear(latent_dim, hidden_dim)
+
+    # def forward(self, z):
+    #     h = self.fc(z)
+    #     output, _ = self.lstm(h)
         
-        return output
+    #     return output
 
 
 
@@ -129,7 +129,6 @@ class Generator(nn.Module):
     def forward(self, Z):
         g_outputs, _ = self.rnn(Z)
         context_vector, _ = self.attention(g_outputs)
-        print(context_vector.size())
         E = self.fc(context_vector)
         E = self.sigmoid(E)
         return E

@@ -31,9 +31,10 @@ class TimeGAN:
         self.optim_recovery = torch.optim.Adam(self.recovery.parameters(), lr=self.opt.lr)
         self.optim_generator = torch.optim.Adam(self.generator.parameters(), lr=self.opt.lr)
         self.optim_discriminator = torch.optim.Adam(self.discriminator.parameters(), lr=self.opt.lr)
-        self.optim_supervisor = torch.optim.Adam(self.supervisor.parameters(), lr=self.opt.lr)
-        self.optimizer_vae =  torch.optim.Adam(list(self.embedder.parameters()) + list(self.recovery.parameters()))
-        self.optimizer_gan =  torch.optim.Adam(list(self.generator.parameters()) + list(self.discriminator.parameters()))
+        
+        self.optimizer_supervisor = torch.optim.Adam(self.supervisor.parameters(), lr=self.opt.lr)
+        self.optimizer_latent =  torch.optim.Adam(list(self.embedder.parameters()) + list(self.recovery.parameters()), lr=self.opt.lr)
+        self.optimizer_gan =  torch.optim.Adam(list(self.generator.parameters()) + list(self.discriminator.parameters()), lr=self.opt.lr)
 
         # Set loss function
         self.MSELoss = torch.nn.MSELoss()
@@ -58,13 +59,8 @@ class TimeGAN:
     def batch_forward(self):
         
         # VAE encoder
-        self.H, self.mu, self.logvar = self.embedder(self.X)
-        self.z = self.reparameterize(self.mu, self.logvar)
-        
-        # VAE decoder
-        self.X_tilde = self.recovery(self.z)
-        
-        # Supervisor
+        self.H = self.embedder(self.X)
+        self.X_tilde = self.recovery(self.H)
         self.H_hat_supervise = self.supervisor(self.H)
 
         # Generator
@@ -87,20 +83,18 @@ class TimeGAN:
 
         return self.X_hat
     
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
+    # def reparameterize(self, mu, logvar):
+    #     std = torch.exp(0.5 * logvar)
+    #     eps = torch.randn_like(std)
+    #     return mu + eps * std
 
     def train_embedder(self, join_train=False):
         self.embedder.train()
         self.recovery.train()
         # self.optim_embedder.zero_grad()
         # self.optim_recovery.zero_grad()
-        self.optimizer_vae.zero_grad()
+        self.optimizer_latent.zero_grad()
         self.E_loss_T0 = self.MSELoss(self.X, self.X_tilde)
-        kld_loss = -0.5 * torch.sum(1 + self.logvar - self.mu.pow(2) - self.logvar.exp())
-        self.E_loss_T0 += kld_loss
         self.E_loss0 = 10 * torch.sqrt(self.E_loss_T0)
         if not join_train:
             # E0_solver
@@ -112,19 +106,19 @@ class TimeGAN:
             self.E_loss.backward()
         # self.optim_embedder.step()
         # self.optim_recovery.step()
-        self.optimizer_vae.step()
+        self.optimizer_latent.step()
         
         
     def train_supervisor(self):
         # GS_solver
-        # self.generator.train()
+        self.generator.train()
         self.supervisor.train()
         self.optim_generator.zero_grad()
-        self.optim_supervisor.zero_grad()
+        self.optimizer_supervisor.zero_grad()
         self.G_loss_S = self.MSELoss(self.H[:, 1:, :], self.H_hat_supervise[:, :-1, :])
         self.G_loss_S.backward()
-        # self.optim_generator.step()
-        self.optim_supervisor.step()
+        self.optim_generator.step()
+        self.optimizer_supervisor.step()
 
     def train_generator(self,join_train=False):
         # G_solver
@@ -149,7 +143,7 @@ class TimeGAN:
                       self.G_loss_V * 100
         if not join_train:
             self.G_loss.backward()
-        else:
+        else: 
             self.G_loss.backward(retain_graph=True)
 
         # self.optim_generator.step()
